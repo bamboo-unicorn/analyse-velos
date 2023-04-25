@@ -17,20 +17,6 @@ import plotly.io as pio
 pio.renderers.default='browser'
 mapbox_access_token = "pk.eyJ1IjoiY3JvdXNzIiwiYSI6ImNrbmxpNTI2ejA3YmoydWt4MGQ0aGJxOTcifQ.aVndCa8vOi9Ycnrf-sDVZA"  # a renseigner
 
-
-# Ouverture des fichiers
-df_compteurs=pd.read_csv('https://data.tours-metropole.fr/api/explore/v2.1/catalog/datasets/comptage-velo-compteurs-syndicat-des-mobilites-de-touraine/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B', delimiter=";",decimal=',')
-df_comptage= pd.read_csv('https://data.tours-metropole.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs-syndicat-des-mobilites-de-touraine/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B',delimiter=";",decimal=',')
-
-# Ajout de colonnes pour faciliter la visualisation par date dans df_comptage
-
-df_comptage['Date et heure de comptage']=pd.to_datetime(df_comptage['Date et heure de comptage'], utc=True)
-df_comptage["Jour"]=df_comptage["Date et heure de comptage"].dt.day_name()
-df_comptage["Num Jour"]=df_comptage["Date et heure de comptage"].dt.dayofweek.astype(int)
-df_comptage["Mois"]=df_comptage["Date et heure de comptage"].dt.month_name()
-df_comptage["Num Mois"]=df_comptage["Date et heure de comptage"].dt.month.astype(int)
-df_comptage["Année"]=df_comptage["Date et heure de comptage"].dt.year
-
 dict_jours={0:'Lundi', 1:'Mardi',2:'Mercredi',3:'Jeudi',4:'Vendredi',5:'Samedi',6:'Dimanche'}
 dict_mois = {
     1: 'Janvier',
@@ -47,23 +33,35 @@ dict_mois = {
     12: 'Décembre'
 }
 
-#liste des noms de compteurs
+
+
+
+# Ouverture des fichiers
+df_compteurs=pd.read_csv('https://data.tours-metropole.fr/api/explore/v2.1/catalog/datasets/comptage-velo-compteurs-syndicat-des-mobilites-de-touraine/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B', delimiter=";",decimal=',')
+df_comptage= pd.read_csv('https://data.tours-metropole.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs-syndicat-des-mobilites-de-touraine/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B',delimiter=";",decimal=',')
+
+# Nettoyage des données
+values = {"Numéro de série du compteur actuellement lié au site de comptage": 0, "photourl":'missing', "photo": 'missing'}
+df_comptage=df_comptage.fillna(value=values)
+df_comptage=df_comptage.dropna(subset=['Nom du compteur'])
+
+df_compteurs=df_compteurs.fillna(value=values)
 compteurs=df_comptage['Nom du compteur'].unique().tolist()
+
 for c in compteurs:
     if (type(c)!= str):
         compteurs.remove(c)
+    
 
-# Fonction permettant de créer des graphiques en barre selon la granularité temporelle souhaitée
+# Ajout de colonnes pour faciliter la visualisation par date dans df_comptage
 
-def plot_average_by(compteur, column_name):
-    df_comptage.set_index(column_name)
-    df_filtered= df_comptage.where(df_comptage['Nom du compteur']==compteur )
-    df_filtered=df_filtered.dropna()
-    df_res=df_filtered.groupby(column_name)[['Comptage quotidien']].mean()
-    return(df_res)
-    #fig=px.bar(df_res, title="Passage sur "+compteur+" : évolution de la moyenne quotidienne, par "+column_name )
-    #fig.show()
-  
+df_comptage['Date et heure de comptage']=pd.to_datetime(df_comptage['Date et heure de comptage'], utc=True)
+df_comptage["Jour"]=df_comptage["Date et heure de comptage"].dt.day_name()
+df_comptage["Num Jour"]=df_comptage["Date et heure de comptage"].dt.dayofweek.astype(int)
+df_comptage["Mois"]=df_comptage["Date et heure de comptage"].dt.month_name()
+df_comptage["Num Mois"]=df_comptage["Date et heure de comptage"].dt.month.astype(int)
+df_comptage["Année"]=df_comptage["Date et heure de comptage"].dt.year
+
 # Création d'un df df_info_compteurs contenant des informations détaillées par compteur
     
 df_infos_compteurs = df_compteurs.copy()
@@ -113,11 +111,44 @@ df_infos_compteurs[['lat', 'long']] = df_infos_compteurs["Coordonnées géograph
 df_infos_compteurs[["lat", "long"]] = df_infos_compteurs[["lat", "long"]].apply(pd.to_numeric)
 df_infos_compteurs=df_infos_compteurs.reset_index()
 
-def plot_all_locations( title='Carte des compteurs de la métropole'):
 
+df_info_tr=df_infos_compteurs.copy().reset_index()
+
+df_info_tr.drop(['Top_10_jours_plus_frequentes','Top_10_jours_moins_frequentes'], axis=1, inplace=True)
+df_info_tr=df_info_tr.transpose()
+df_info_tr=df_info_tr.drop('index')
+df_info_tr=df_info_tr.reset_index()
+df_info_tr=df_info_tr.fillna(0)
+df_info_tr.columns=df_info_tr.iloc[0]
+df_info_tr=df_info_tr.drop([0])
+df_info_tr=df_info_tr.set_index('Nom du compteur')
+
+df=df_infos_compteurs.copy()
+df=df.fillna(0)
+df['Moyenne quotidienne']=pd.to_numeric(df_infos_compteurs['Moyenne quotidienne'])
+compteurs=df.sort_values('Moyenne quotidienne', ascending=False)['Nom du compteur'].unique().tolist()
+
+# Fonction permettant de créer des graphiques en barre selon la granularité temporelle souhaitée
+
+def plot_average_by(compteur, column_name):
+    df_comptage.set_index(column_name)
+    df_filtered= df_comptage.where(df_comptage['Nom du compteur']==compteur )
+    df_filtered=df_filtered.dropna()
+    df_res=df_filtered.groupby(column_name)[['Comptage quotidien']].mean()
+    return(df_res)
+    #fig=px.bar(df_res, title="Passage sur "+compteur+" : évolution de la moyenne quotidienne, par "+column_name )
+    #fig.show()
+  
+
+def plot_all_locations( title='Carte des compteurs de la métropole'):
+    df=df_infos_compteurs.copy().reset_index()
+   
+    df['Moyenne quotidienne']=pd.to_numeric(df['Moyenne quotidienne'])
+    df['Moyenne quotidienne']=df['Moyenne quotidienne'].fillna(0)
     px.set_mapbox_access_token(mapbox_access_token)
-    fig = px.scatter_mapbox(df_infos_compteurs, lat="lat", lon="long",
-                    color_discrete_sequence=['red'] ,  zoom=5, hover_name="Nom du compteur", size_max=50)
+    fig = px.scatter_mapbox(df, lat="lat", lon="long",
+                    color_discrete_sequence=['red'] ,  zoom=5, hover_name="Nom du compteur", size='Moyenne quotidienne')
+
     fig.update_layout( mapbox_style="basic",
     title=title,
     autosize=True,
@@ -137,6 +168,8 @@ def plot_all_locations( title='Carte des compteurs de la métropole'):
 
     )
     return(fig)
+
+
 
 def get_fig_jours_plus_moins(chosen):
     if type(chosen)!=list:
@@ -162,8 +195,12 @@ def get_fig_jours_plus_moins(chosen):
     df_plus=df_plus.sort_values('Passages')
     df_moins=df_moins.sort_values('Passages',ascending=False)
     fig_top10moins=px.bar(df_moins,  y='Date', x='Passages', orientation='h', title ='Top 10 des jours les moins fréquentés', color='Nom', barmode='group')   
+    fig_top10moins.update_layout(yaxis_title=None)
+
     fig_top10plus=px.bar(df_plus,  y='Date', x='Passages', orientation='h', title ='Top 10 des jours les plus fréquentés', color='Nom', barmode='group') 
-    return fig_top10moins, fig_top10plus
+    fig_top10plus.update_layout(yaxis_title=None)
+    return(fig_top10moins,fig_top10plus)   
+    
 
  # initialize app
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -173,10 +210,13 @@ server=app.server
 
 # set app layout
 app.layout = html.Div(children=[
-    html.H1('Analyse des passages quotidiens', style={'textAlign':'center'}),
+    html.H1('Visualisation des passages de vélo : Métropole de Tours', style={'textAlign':'center'}),
     html.Br(),
+    
     dcc.Graph(figure=plot_all_locations()),
-    html.Div([dcc.Dropdown(
+    html.Div([
+        html.H3(''' Sélectionnez les compteurs dont vous souhaitez visualiser l'évolution.''', style={'textAlign': 'center'}),
+        dcc.Dropdown(
         options=compteurs,
         value=['Pont Wilson'],
         id='compteurs_choisis',
@@ -206,7 +246,7 @@ app.layout = html.Div(children=[
             ])
         ])
     )),    
-        
+    html.H3(''' Comparaison par jour de la semaine''', style={'textAlign': 'center'}),    
     dcc.Graph(id='bar2'),
     html.Div(
            id='table'
@@ -228,20 +268,11 @@ app.layout = html.Div(children=[
 
 def update_hist(chosen,periodicite):
     dict_period={'Evolution de la moyenne quotidienne sur toute la période':'Date et heure de comptage','Evolution de la moyenne quotidienne par jour de la semaine':'Num Jour',  'Evolution de la moyenne quotidienne par mois de l''année':'Num Mois', 'Evolution de la moyenne quotidienne par année': 'Année'}
-    df=df_infos_compteurs.copy()
-    df=df.reset_index()
     compteur_0=chosen[0]
-    df=df.loc[df['Nom du compteur']==compteur_0]
-    
 # Creation des graphiques en barres top10 jours moins fréquentés
     fig_moins, fig_plus=get_fig_jours_plus_moins(chosen) 
     fig_moins.update_layout(showlegend=False)
 
-#tableau à montrer    
-    df.drop(['Top_10_jours_plus_frequentes','Top_10_jours_moins_frequentes'], axis=1, inplace=True)
-    df=df.transpose().reset_index()
-    df.columns=['Nom du compteur', compteur_0]
-    df=df.tail(-1)
     
 #Graphique principal     
     df_evolution=plot_average_by(chosen[0], dict_period[periodicite])
@@ -252,8 +283,7 @@ def update_hist(chosen,periodicite):
         df_temp['Nom']=c
         df_evolution=pd.concat([df_evolution, df_temp])
     df_evolution=df_evolution.reset_index()
-    
-    
+       
     fig=px.bar(df_evolution, y='Comptage quotidien', x=dict_period[periodicite], color='Nom',barmode='group')
     fig.update_yaxes(title_text='Comptage quotidien moyen')
 
@@ -288,7 +318,7 @@ def update_hist(chosen,periodicite):
     
     
     return(fig, 
-           dash_table.DataTable(data=df.to_dict('records'),css=[{'selector': 'table', 'rule': 'table-layout: fixed'}],
+           dash_table.DataTable(data=df_info_tr[chosen].reset_index().to_dict('records'),css=[{'selector': 'table', 'rule': 'table-layout: fixed'}],
     style_cell={
         'width': '{}%'.format(len(df.columns)),
         'textOverflow': 'ellipsis',
