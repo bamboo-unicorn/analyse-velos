@@ -54,13 +54,14 @@ for c in compteurs:
     
 
 # Ajout de colonnes pour faciliter la visualisation par date dans df_comptage
-
 df_comptage['Date et heure de comptage']=pd.to_datetime(df_comptage['Date et heure de comptage'], utc=True)
-df_comptage["Jour"]=df_comptage["Date et heure de comptage"].dt.day_name()
+
 df_comptage["Num Jour"]=df_comptage["Date et heure de comptage"].dt.dayofweek.astype(int)
-df_comptage["Mois"]=df_comptage["Date et heure de comptage"].dt.month_name()
+df_comptage["Jour"]=df_comptage["Num Jour"].map(dict_jours)
 df_comptage["Num Mois"]=df_comptage["Date et heure de comptage"].dt.month.astype(int)
+df_comptage["Mois"]=df_comptage["Num Mois"].map(dict_mois)
 df_comptage["Année"]=df_comptage["Date et heure de comptage"].dt.year
+
 
 # Création d'un df df_info_compteurs contenant des informations détaillées par compteur
     
@@ -201,6 +202,52 @@ def get_fig_jours_plus_moins(chosen):
     fig_top10plus.update_layout(yaxis_title=None)
     return(fig_top10moins,fig_top10plus)   
     
+def get_evolution(compteur):
+    df=df_infos_compteurs.copy().reset_index()
+    df_compteur=df_comptage[df_comptage['Nom du compteur']==compteur].sort_values('Date et heure de comptage', ascending=False).reset_index()
+
+    most_recent_line=df_compteur.iloc[0][['Date et heure de comptage', 'Comptage quotidien', 'Jour','Mois','Année']]
+    most_recent_date=most_recent_line['Date et heure de comptage']
+    
+    j=most_recent_line['Jour']
+    n=most_recent_date.day
+    m=most_recent_line['Mois']
+    a= most_recent_line['Année']
+    str_date=str(j)+' '+str(n)+' '+str(m)+' '+str(a)
+    derniere_date=most_recent_line['Date et heure de comptage']
+    dernier_comptage=int(most_recent_line['Comptage quotidien'])
+    
+    comptage_30_derniers_jours=int(df_compteur.iloc[0:30][ 'Comptage quotidien'].sum())
+    comptage_mois_precedent=int(df_compteur.iloc[31:61]['Comptage quotidien'].sum())
+
+    same_day_last_week = derniere_date-pd.Timedelta(weeks=1)
+    date_last_year=derniere_date-pd.DateOffset(years=1)
+    
+    val_last_week = int(df_compteur[df_compteur['Date et heure de comptage']==same_day_last_week]['Comptage quotidien'])
+    val_last_year = int(df_compteur[df_compteur['Date et heure de comptage']==date_last_year]['Comptage quotidien'])
+    
+    s_evo_sem, s_evo_mois, s_evo_an='-','-','-'
+    
+    evol_j_semaine= int(100*(dernier_comptage-val_last_week)/val_last_week)  
+    evol_mois=int(100*(comptage_30_derniers_jours-comptage_mois_precedent)/comptage_mois_precedent)    
+    evol_an=int(100*(dernier_comptage-val_last_year)/val_last_year)
+    
+    if np.sign(evol_j_semaine)>0:
+        s_evo_sem='+'       
+    if np.sign(evol_mois)>0:
+        s_evo_mois='+'
+    if np.sign(evol_an)>0:
+        s_evo_an='+'
+    
+    e_s = s_evo_sem+' '+ str(abs(evol_j_semaine))+'%'
+    e_m = s_evo_mois +' '+ str(abs(evol_mois))+'%'
+    e_a = s_evo_an+' '+ str(abs(evol_an))+'%'
+    
+    #print(len(df_compteur.iloc[31:61]['Comptage quotidien']), len(df_compteur.iloc[0:30][ 'Comptage quotidien']))
+    
+    return  ([compteur+' '+str_date,e_s+''' par rapport au '''+j+''' précédent''',
+             e_m+''' sur les 30 derniers jours par rapport aux 30 jours précédents''',
+            e_a+''' par rapport au '''+str(n)+' '+str(m)+' '+str(a-1)])
 
  # initialize app
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -236,6 +283,7 @@ app.layout = html.Div(children=[
         multi=False
     )]),
     dcc.Graph(id='bar'),
+    html.Div(id='texte_infos_evolution'),
     html.Div(html.Table(
         html.Tr([
             html.Td([
@@ -262,6 +310,7 @@ app.layout = html.Div(children=[
     Output('top10plus', 'figure'),
     Output('top10moins', 'figure'),
     Output('bar2', 'figure'),
+    Output('texte_infos_evolution','children'),
     Input('compteurs_choisis', 'value'),
     Input('periodicite', 'value')
 )
@@ -304,6 +353,8 @@ def update_hist(chosen,periodicite):
        fig.update_xaxes(labelalias=dict_mois)
        fig.update_xaxes(title_text='Mois')
        
+    fig.update_layout(hovermode="x unified")
+       
  #creation de la visualisation par jour de la semaine      
     dff=df_infos_compteurs[df_infos_compteurs['Nom du compteur']==compteur_0][['Moyenne Lun-Ven','Moyenne Samedi','Moyenne Dimanche','Moyenne quotidienne']].transpose().reset_index()
     dff.columns = ['Donnée', 'Passages']
@@ -325,7 +376,8 @@ def update_hist(chosen,periodicite):
         'overflow': 'hidden' }),
         fig_plus,
         fig_moins,
-        fig_compteur       
+        fig_compteur,
+        dash_table.DataTable(data=dict([get_evolution(c) for c in chosen])css=[{'selector': 'table', 'rule': 'table-layout: fixed'}]
         )
 
 
