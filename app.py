@@ -112,6 +112,7 @@ df_infos_compteurs[['lat', 'long']] = df_infos_compteurs["Coordonnées géograph
 df_infos_compteurs[["lat", "long"]] = df_infos_compteurs[["lat", "long"]].apply(pd.to_numeric)
 df_infos_compteurs=df_infos_compteurs.reset_index()
 
+df_infos_compteurs['''Date d'installation du site de comptage'''] = pd.to_datetime(df_infos_compteurs['''Date d'installation du site de comptage'''])
 
 df_info_tr=df_infos_compteurs.copy().reset_index()
 
