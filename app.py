@@ -377,8 +377,8 @@ def update_hist(chosen,periodicite):
         fig_plus,
         fig_moins,
         fig_compteur,
-        dash_table.DataTable(data=dict([get_evolution(c) for c in chosen])css=[{'selector': 'table', 'rule': 'table-layout: fixed'}]
-        )
+        dash_table.DataTable(data=dict([get_evolution(c) for c in chosen]),css=[{'selector': 'table', 'rule': 'table-layout: fixed'}]
+        ))
 
 
 if __name__ == "__main__":
