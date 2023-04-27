@@ -114,7 +114,10 @@ df_infos_compteurs=df_infos_compteurs.reset_index()
 
 df_infos_compteurs['''Date d'installation du site de comptage'''] = pd.to_datetime(df_infos_compteurs['''Date d'installation du site de comptage'''])
 
+
 df_info_tr=df_infos_compteurs.copy().reset_index()
+
+#tableau de tous les compteurs, sans les colonnes top 10 et min 10
 
 df_info_tr.drop(['Top_10_jours_plus_frequentes','Top_10_jours_moins_frequentes'], axis=1, inplace=True)
 df_info_tr=df_info_tr.transpose()
@@ -125,6 +128,8 @@ df_info_tr.columns=df_info_tr.iloc[0]
 df_info_tr=df_info_tr.drop([0])
 df_info_tr=df_info_tr.set_index('Nom du compteur')
 
+
+# liste des compteurs actifs
 df=df_infos_compteurs.copy()
 df=df.fillna(0)
 df['Moyenne quotidienne']=pd.to_numeric(df_infos_compteurs['Moyenne quotidienne'])
@@ -201,7 +206,8 @@ def get_fig_jours_plus_moins(chosen):
 
     fig_top10plus=px.bar(df_plus,  y='Date', x='Passages', orientation='h', title ='Top 10 des jours les plus fréquentés', color='Nom', barmode='group') 
     fig_top10plus.update_layout(yaxis_title=None)
-    return(fig_top10moins,fig_top10plus)   
+    return(fig_top10moins,fig_top10plus)
+   
     
 def get_evolution(compteur):
     df=df_infos_compteurs.copy().reset_index()
@@ -210,45 +216,60 @@ def get_evolution(compteur):
     most_recent_line=df_compteur.iloc[0][['Date et heure de comptage', 'Comptage quotidien', 'Jour','Mois','Année']]
     most_recent_date=most_recent_line['Date et heure de comptage']
     
+    date_install=df[df['Nom du compteur']== compteur]['''Date d'installation du site de comptage'''].iloc[0].date()
+    
     j=most_recent_line['Jour']
     n=most_recent_date.day
     m=most_recent_line['Mois']
     a= most_recent_line['Année']
     str_date=str(j)+' '+str(n)+' '+str(m)+' '+str(a)
     derniere_date=most_recent_line['Date et heure de comptage']
-    dernier_comptage=int(most_recent_line['Comptage quotidien'])
-    
-    comptage_30_derniers_jours=int(df_compteur.iloc[0:30][ 'Comptage quotidien'].sum())
-    comptage_mois_precedent=int(df_compteur.iloc[31:61]['Comptage quotidien'].sum())
-
+    dernier_comptage=int(most_recent_line['Comptage quotidien'])    
     same_day_last_week = derniere_date-pd.Timedelta(weeks=1)
     date_last_year=derniere_date-pd.DateOffset(years=1)
     
-    val_last_week = int(df_compteur[df_compteur['Date et heure de comptage']==same_day_last_week]['Comptage quotidien'])
-    val_last_year = int(df_compteur[df_compteur['Date et heure de comptage']==date_last_year]['Comptage quotidien'])
-    
     s_evo_sem, s_evo_mois, s_evo_an='-','-','-'
     
-    evol_j_semaine= int(100*(dernier_comptage-val_last_week)/val_last_week)  
-    evol_mois=int(100*(comptage_30_derniers_jours-comptage_mois_precedent)/comptage_mois_precedent)    
-    evol_an=int(100*(dernier_comptage-val_last_year)/val_last_year)
+    if same_day_last_week.date() >= date_install:
+            val_last_week = int(df_compteur[df_compteur['Date et heure de comptage']==same_day_last_week]['Comptage quotidien'])
+            evol_j_semaine= int(100*(dernier_comptage-val_last_week)/val_last_week)
+            if np.sign(evol_j_semaine)>0:
+                s_evo_sem='+'
+            e_s = s_evo_sem+' '+ str(abs(evol_j_semaine))+'%'
+            e_s= e_s+ ''' par rapport au '''+j+''' précédent'''
+    else: 
+        e_s='Indisponible, compteur installé le '+str(date_install)
+                
+
+    if date_last_year.date() >= date_install:
+        val_last_year = int(df_compteur[df_compteur['Date et heure de comptage']==date_last_year]['Comptage quotidien'])
+        evol_an=int(100*(dernier_comptage-val_last_year)/val_last_year)
+        if np.sign(evol_an)>0:
+            s_evo_an='+'
+        e_a = s_evo_an+' '+ str(abs(evol_an))+'%'
+        e_a=e_a+''' par rapport au '''+str(n)+' '+str(m)+' '+str(a-1)
+
+    else:
+        e_a='Indisponible, compteur installé le '+str(date_install)
+            
     
-    if np.sign(evol_j_semaine)>0:
-        s_evo_sem='+'       
-    if np.sign(evol_mois)>0:
-        s_evo_mois='+'
-    if np.sign(evol_an)>0:
-        s_evo_an='+'
+    comptage_30_derniers_jours=int(df_compteur.iloc[0:30][ 'Comptage quotidien'].sum())
+    comptage_mois_precedent=int(df_compteur.iloc[31:61]['Comptage quotidien'].sum())
     
-    e_s = s_evo_sem+' '+ str(abs(evol_j_semaine))+'%'
-    e_m = s_evo_mois +' '+ str(abs(evol_mois))+'%'
-    e_a = s_evo_an+' '+ str(abs(evol_an))+'%'
+    if len(df_compteur)>60:
+        evol_mois=int(100*(comptage_30_derniers_jours-comptage_mois_precedent)/comptage_mois_precedent)
+        if np.sign(evol_mois)>0:
+            s_evo_mois='+'
+        e_m = s_evo_mois +' '+ str(abs(evol_mois))+'%'
+        e_m=e_m+''' sur les 30 derniers jours par rapport aux 30 jours précédents'''
+        
+    else: 
+        e_m='Indisponible, compteur installé le '+str(date_install)
+            
     
-    #print(len(df_compteur.iloc[31:61]['Comptage quotidien']), len(df_compteur.iloc[0:30][ 'Comptage quotidien']))
-    
-    return  ([compteur+' '+str_date,e_s+''' par rapport au '''+j+''' précédent''',
-             e_m+''' sur les 30 derniers jours par rapport aux 30 jours précédents''',
-            e_a+''' par rapport au '''+str(n)+' '+str(m)+' '+str(a-1)])
+    return  ({'Compteur':compteur, 'Dernier enregistrement': str_date, 'Par rapport à la semaine précédente': e_s,
+             'Evolution de la moyenne mensuelle': e_m,
+            '''Evolution par rapport à l'année dernière''':e_a})
 
  # initialize app
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -273,16 +294,20 @@ app.layout = html.Div(children=[
         multi=True
     ),
     dcc.Dropdown(
-        options=['Evolution de la moyenne quotidienne sur toute la période',
+        options=['Evolution des comptages quotidiens sur toute la période',
                  'Evolution de la moyenne quotidienne par jour de la semaine',
                  'Evolution de la moyenne quotidienne par mois de l''année',
                  'Evolution de la moyenne quotidienne par année'],
-        value='Evolution de la moyenne quotidienne sur toute la période',
+        value='Evolution des comptages quotidiens sur toute la période',
         id='periodicite',
         style={"width": "50%", "offset":1,},
         clearable=False,
         multi=False
-    )]),
+    ),
+    html.Br(),
+    dcc.Markdown('''Vous pouvez zoomer sur la période qui vous intéresse, en la sélectionnant.''')
+    ]),
+    
     dcc.Graph(id='bar'),
     html.Div(id='texte_infos_evolution'),
     html.Div(html.Table(
@@ -317,7 +342,7 @@ app.layout = html.Div(children=[
 )
 
 def update_hist(chosen,periodicite):
-    dict_period={'Evolution de la moyenne quotidienne sur toute la période':'Date et heure de comptage','Evolution de la moyenne quotidienne par jour de la semaine':'Num Jour',  'Evolution de la moyenne quotidienne par mois de l''année':'Num Mois', 'Evolution de la moyenne quotidienne par année': 'Année'}
+    dict_period={'Evolution des comptages quotidiens sur toute la période':'Date et heure de comptage','Evolution de la moyenne quotidienne par jour de la semaine':'Num Jour',  'Evolution de la moyenne quotidienne par mois de l''année':'Num Mois', 'Evolution de la moyenne quotidienne par année': 'Année'}
     compteur_0=chosen[0]
 # Creation des graphiques en barres top10 jours moins fréquentés
     fig_moins, fig_plus=get_fig_jours_plus_moins(chosen) 
@@ -338,7 +363,7 @@ def update_hist(chosen,periodicite):
     fig.update_yaxes(title_text='Comptage quotidien moyen')
 
     
-    if periodicite == 'Evolution de la moyenne quotidienne sur toute la période':
+    if periodicite == 'Evolution des comptages quotidiens sur toute la période':
         df_evolution=df_evolution.reset_index()
         df_evolution['Date']=df_evolution['Date et heure de comptage'].apply(lambda k: dict_jours[(k.date().weekday())]+' '+str(k.date().day)+' '+dict_mois[(k.date().month)]+' '+str(k.date().year))
         df_evolution['Date et heure de comptage']=pd.to_datetime(df_evolution['Date et heure de comptage']).dt.date
@@ -378,8 +403,11 @@ def update_hist(chosen,periodicite):
         fig_plus,
         fig_moins,
         fig_compteur,
-        dash_table.DataTable(data=([get_evolution(c) for c in chosen]),css=[{'selector': 'table', 'rule': 'table-layout: fixed'}]
-        ))
+        dash_table.DataTable(data=([get_evolution(c) for c in chosen]),style_data={
+        'whiteSpace': 'normal',
+        'height': 'auto',
+        })
+        )
 
 
 if __name__ == "__main__":
