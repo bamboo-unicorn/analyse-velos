@@ -270,6 +270,70 @@ def get_evolution(compteur):
     return  ({'Compteur':compteur, 'Dernier enregistrement': str_date, 'Par rapport à la semaine précédente': e_s,
              'Evolution de la moyenne mensuelle': e_m,
             '''Evolution par rapport à l'année dernière''':e_a})
+            
+def df_moyenne_mensuelle(compteur):
+    df=df_comptage[df_comptage['Nom du compteur']==compteur][['Date et heure de comptage', 'Comptage quotidien']]
+    df=df.set_index('Date et heure de comptage')                                        
+    df= df.resample('M').mean()
+    df=df.reset_index()
+    df['Comptage quotidien']=df['Comptage quotidien'].astype(int)
+    df['Num Mois']=df['Date et heure de comptage'].dt.month.astype(int)
+    df['Mois']=df['Num Mois'].map(dict_mois)
+    df['Année']=df['Date et heure de comptage'].dt.year.astype(int)
+    df['Date et heure de comptage']=df['Date et heure de comptage'].dt.date
+    df.columns=['Date', 'Moyenne quotidienne', 'Numéro de mois', 'Mois', 'Année']
+    df['Période']=df['Mois'].astype(str)+' '+df['Année'].astype(str)
+    
+    return(df)
+
+    
+
+
+def plot_moyennes_mensuelles(chosen):
+    df=df_moyenne_mensuelle(chosen[0])
+    df['Nom']=chosen[0]
+    df['date_delta'] = (df['Date'] - df['Date'].min())  / np.timedelta64(1,'D')
+    date_install_min= df_infos_compteurs[df_infos_compteurs['Nom du compteur'].isin(chosen)]['''Date d'installation du site de comptage'''].min()
+    
+    for c in chosen[1:] :
+        date_install=pd.Timestamp((df_infos_compteurs[df_infos_compteurs['Nom du compteur']== c]['''Date d'installation du site de comptage''']).iloc[0])
+        print(type(date_install))
+        df_temp= df_moyenne_mensuelle(c)
+        df_temp['Nom']=c
+        df_temp['date_delta']=df_temp['Date'].apply(lambda x: ((pd.Timestamp(x) - date_install_min)  / np.timedelta64(1,'D')))
+        df=pd.concat([df, df_temp])
+
+
+    fig=px.line(df, x=df['Date'], y=df['Moyenne quotidienne'], color='Nom', hover_name='Nom', hover_data={'Nom':False, "Date":False, 'Période':True,'Moyenne quotidienne': True},  line_shape='spline')
+    fig.update_traces(marker={'size': 5})
+
+    fig2=px.scatter(data_frame=df, x='date_delta', y='Moyenne quotidienne', color='Nom', trendline='ols').update_traces(mode='lines')
+    
+    results = px.get_trendline_results(fig2)
+    results=results.set_index('Nom')
+    
+    dict_param={}
+    df['pente']=''
+    df['y intercept']=''
+    for c in chosen:
+        dict_param[c]=results.loc[c]['px_fit_results'].params.tolist()
+        df.loc[df['Nom']==c,['pente']]= round(dict_param[c][1],3)
+        df.loc[df['Nom']==c,['y intercept']]= round(dict_param[c][0],3)
+
+
+        
+    df['valeur tendance']= pd.to_numeric(df['pente'])*df['date_delta']+pd.to_numeric(df['y intercept'])
+    
+    fig2=px.line(df, x=df['Date'], y=df['valeur tendance'], hover_name='Nom',hover_data={'Nom':False, 'pente':True}, color='Nom',line_dash='Nom', line_dash_sequence=['dot'] )
+    
+    
+
+    fig_res=go.Figure(data=fig.data+fig2.data)
+    fig_res.update_yaxes(title='Passages quotidiens moyens')
+    fig_res.update_xaxes(title='Mois')
+    fig_res.update_layout(title="Evolution de la moyenne quotidienne, par mois <br><sup>La ligne en pointillé représente une modélisation linéaire des passages observés. <br> Sa pente représente le nombre supplémentaire de cyclistes observés, en moyenne, par rapport au jour précédent.</sup>")
+
+    return fig_res, dict_param
 
  # initialize app
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -295,6 +359,7 @@ app.layout = html.Div(children=[
     ),
     dcc.Dropdown(
         options=['Evolution des comptages quotidiens sur toute la période',
+                 'Evolution de la moyenne quotidienne, moyenne par mois',
                  'Evolution de la moyenne quotidienne par jour de la semaine',
                  'Evolution de la moyenne quotidienne par mois de l''année',
                  'Evolution de la moyenne quotidienne par année'],
@@ -350,17 +415,23 @@ def update_hist(chosen,periodicite):
 
     
 #Graphique principal     
-    df_evolution=plot_average_by(chosen[0], dict_period[periodicite])
-    df_evolution['Nom']=chosen[0]
+    if periodicite=='Evolution de la moyenne quotidienne, moyenne par mois':
+        df_evolution = df_moyenne_mensuelle(chosen[0])
+        for c in chosen[1:] :
+            df_temp=df_moyenne_mensuelle(c)
+            df_temp['Nom']=c
+            df_evolution=pd.concat([df_evolution, df_temp])
+        df_evolution=df_evolution.reset_index()
+    else:    
+        df_evolution=plot_average_by(chosen[0], dict_period[periodicite])
+        df_evolution['Nom']=chosen[0]
     
-    for c in chosen[1:] :
-        df_temp=plot_average_by(c, dict_period[periodicite])
-        df_temp['Nom']=c
-        df_evolution=pd.concat([df_evolution, df_temp])
-    df_evolution=df_evolution.reset_index()
+        for c in chosen[1:] :
+            df_temp=plot_average_by(c, dict_period[periodicite])
+            df_temp['Nom']=c
+            df_evolution=pd.concat([df_evolution, df_temp])
+        df_evolution=df_evolution.reset_index()
        
-    fig=px.bar(df_evolution, y='Comptage quotidien', x=dict_period[periodicite], color='Nom',barmode='group')
-    fig.update_yaxes(title_text='Comptage quotidien moyen')
 
     
     if periodicite == 'Evolution des comptages quotidiens sur toute la période':
@@ -369,18 +440,31 @@ def update_hist(chosen,periodicite):
         df_evolution['Date et heure de comptage']=pd.to_datetime(df_evolution['Date et heure de comptage']).dt.date
         fig=px.bar(df_evolution, x='Date et heure de comptage', y='Comptage quotidien', color='Nom', barmode='group',hover_name='Date', hover_data={'Nom': True,'Comptage quotidien':True,'Date et heure de comptage':False,'Date':False})
         fig.update_yaxes(title_text='Comptage quotidien')
+        fig.update_layout(hovermode="x unified")
+
 
     if periodicite =='Evolution de la moyenne quotidienne par jour de la semaine':
+        fig=px.bar(df_evolution, y='Comptage quotidien', x=dict_period[periodicite], color='Nom',barmode='group')
+
         fig.update_xaxes(labelalias=dict_jours)
         fig.update_xaxes(title_text='Jour')
+        fig.update_layout(hovermode="x unified")
+
 
         
     if periodicite == 'Evolution de la moyenne quotidienne par mois de l''année':
+       fig=px.bar(df_evolution, y='Comptage quotidien', x=dict_period[periodicite], color='Nom',barmode='group')
+
        fig.update_xaxes(labelalias=dict_mois)
        fig.update_xaxes(title_text='Mois')
+       fig.update_layout(hovermode="x unified")
+
        
-    fig.update_layout(hovermode="x unified")
        
+    
+    if periodicite == 'Evolution de la moyenne quotidienne, moyenne par mois':
+        fig, param=plot_moyennes_mensuelles(chosen)
+        
  #creation de la visualisation par jour de la semaine      
     dff=df_infos_compteurs[df_infos_compteurs['Nom du compteur']==compteur_0][['Moyenne Lun-Ven','Moyenne Samedi','Moyenne Dimanche','Moyenne quotidienne']].transpose().reset_index()
     dff.columns = ['Donnée', 'Passages']
@@ -392,6 +476,7 @@ def update_hist(chosen,periodicite):
         dff=pd.concat([dff, df_temp])
     
     fig_compteur=px.bar(dff, x='Donnée', y='Passages', color='Nom', barmode='group')    
+    
     
     
     return(fig, 
@@ -411,7 +496,7 @@ def update_hist(chosen,periodicite):
 
 
 if __name__ == "__main__":
-    app.run_server(debug=True)     
+    app.run_server(debug=False)     
 
 
 
