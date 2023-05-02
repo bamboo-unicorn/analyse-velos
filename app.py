@@ -143,8 +143,7 @@ def plot_average_by(compteur, column_name):
     df_filtered=df_filtered.dropna()
     df_res=df_filtered.groupby(column_name)[['Comptage quotidien']].mean()
     return(df_res)
-    #fig=px.bar(df_res, title="Passage sur "+compteur+" : évolution de la moyenne quotidienne, par "+column_name )
-    #fig.show()
+
   
 
 def plot_all_locations( title='Carte des compteurs de la métropole'):
@@ -304,7 +303,7 @@ def plot_moyennes_mensuelles(chosen):
         df=pd.concat([df, df_temp])
 
 
-    fig=px.line(df, x=df['Date'], y=df['Moyenne quotidienne'], color='Nom', hover_name='Nom', hover_data={'Nom':False, "Date":False, 'Période':True,'Moyenne quotidienne': True},  line_shape='spline')
+    fig=px.line(df, x=df['Date'], y=df['Moyenne quotidienne'], color='Nom', hover_name='Nom', hover_data={'Nom':False, "Date":False, 'Période':True,'Moyenne quotidienne': True},  line_shape='linear')
     fig.update_traces(marker={'size': 5})
 
     fig2=px.scatter(data_frame=df, x='date_delta', y='Moyenne quotidienne', color='Nom', trendline='ols').update_traces(mode='lines')
