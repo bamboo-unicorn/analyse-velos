@@ -11,7 +11,6 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 from dash import Dash, dcc, html, Input, Output, dash_table
-
 import plotly.graph_objects as go
 import plotly.io as pio
 pio.renderers.default='browser'
@@ -39,6 +38,14 @@ dict_mois = {
 # Ouverture des fichiers
 df_compteurs=pd.read_csv('https://data.tours-metropole.fr/api/explore/v2.1/catalog/datasets/comptage-velo-compteurs-syndicat-des-mobilites-de-touraine/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B', delimiter=";",decimal=',')
 df_comptage= pd.read_csv('https://data.tours-metropole.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs-syndicat-des-mobilites-de-touraine/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B',delimiter=";",decimal=',')
+df_jf=pd.read_csv('https://etalab.github.io/jours-feries-france-data/csv/jours_feries_metropole.csv')
+
+df_comptage['Date et heure de comptage']=pd.to_datetime(df_comptage['Date et heure de comptage'], utc=True)
+
+df_comptage['date']=pd.to_datetime(df_comptage['Date et heure de comptage']).dt.date
+df_jf['date']=pd.to_datetime(df_jf['date']).dt.date
+df_comptage=df_comptage.merge(df_jf, how='left', left_on='date', right_on='date')
+
 
 # Nettoyage des données
 values = {"Numéro de série du compteur actuellement lié au site de comptage": 0, "photourl":'missing', "photo": 'missing'}
@@ -54,7 +61,6 @@ for c in compteurs:
     
 
 # Ajout de colonnes pour faciliter la visualisation par date dans df_comptage
-df_comptage['Date et heure de comptage']=pd.to_datetime(df_comptage['Date et heure de comptage'], utc=True)
 
 df_comptage["Num Jour"]=df_comptage["Date et heure de comptage"].dt.dayofweek.astype(int)
 df_comptage["Jour"]=df_comptage["Num Jour"].map(dict_jours)
@@ -90,15 +96,19 @@ df_infos_compteurs['Top_10_jours_plus_frequentes'   ]=''
 df_infos_compteurs['Moyenne Lun-Ven']=''
 df_infos_compteurs['Moyenne Samedi']=''
 df_infos_compteurs['Moyenne Dimanche']=''
-df_infos_compteurs['Moyenne quotidienne']=''
+df_infos_compteurs['Moyenne jours feriés']=''
+
 
 for c in compteurs:
-    min10= df_comptage.where(df_comptage['Nom du compteur']==c).nsmallest(10,'Comptage quotidien')['Date et heure de comptage'].tolist()
+    min10= df_comptage.where(df_comptage['Nom du compteur']==c).where(df_comptage['Comptage quotidien']>0).nsmallest(10,'Comptage quotidien')['Date et heure de comptage'].tolist()
     max10 =df_comptage.where(df_comptage['Nom du compteur']==c).nlargest(10,'Comptage quotidien')['Date et heure de comptage'].tolist()
-    moyluven=df_comptage.where(df_comptage['Nom du compteur']==c).where(df_comptage['Num Jour']<=4)['Comptage quotidien'].mean()
-    moysam=df_comptage.where(df_comptage['Nom du compteur']==c).where(df_comptage['Num Jour']==5)['Comptage quotidien'].mean()
-    moydim=df_comptage.where(df_comptage['Nom du compteur']==c).where(df_comptage['Num Jour']==6)['Comptage quotidien'].mean()
+    
+    moyluven=df_comptage.where(df_comptage['Nom du compteur']==c).where(df_comptage['Num Jour']<=4).where(df_comptage['nom_jour_ferie'].isna())['Comptage quotidien'].mean()
+    moysam=df_comptage.where(df_comptage['Nom du compteur']==c).where(df_comptage['Num Jour']==5).where(df_comptage['nom_jour_ferie'].isna())['Comptage quotidien'].mean()
+    moydim=df_comptage.where(df_comptage['Nom du compteur']==c).where(df_comptage['Num Jour']==6).where(df_comptage['nom_jour_ferie'].isna())['Comptage quotidien'].mean()
     moy=df_comptage.where(df_comptage['Nom du compteur']==c)['Comptage quotidien'].mean()
+    moyenne_jf= df_comptage.where(df_comptage['Nom du compteur']==c).where(df_comptage['nom_jour_ferie'].notnull())['Comptage quotidien'].mean()
+    
     
     df_infos_compteurs.at[c, 'Top_10_jours_moins_frequentes']=min10
     df_infos_compteurs.at[c, 'Top_10_jours_plus_frequentes']=max10
@@ -106,6 +116,7 @@ for c in compteurs:
     df_infos_compteurs.at[c,'Moyenne Samedi']=moysam
     df_infos_compteurs.at[c,'Moyenne Dimanche']=moydim
     df_infos_compteurs.at[c,'Moyenne quotidienne']=moy
+    df_infos_compteurs.at[c, 'Moyenne jours feriés']= moyenne_jf
 
 #Séparation des colonnes latitude et longitude
 df_infos_compteurs[['lat', 'long']] = df_infos_compteurs["Coordonnées géographiques"].str.split(",", expand = True)
@@ -176,7 +187,7 @@ def plot_all_locations( title='Carte des compteurs de la métropole'):
     return(fig)
 
 
-
+# renvoie deux graphiques en barres, pour une liste de compteurs, donnant les top10 jours les plus fréquentés et top10 jours les moins fréquentés
 def get_fig_jours_plus_moins(chosen):
     if type(chosen)!=list:
         chosen=list(chosen)
@@ -207,7 +218,8 @@ def get_fig_jours_plus_moins(chosen):
     fig_top10plus.update_layout(yaxis_title=None)
     return(fig_top10moins,fig_top10plus)
    
-    
+
+# fonction qui renvoie un dict avec l'évolution d'un certain compteur    
 def get_evolution(compteur):
     df=df_infos_compteurs.copy().reset_index()
     df_compteur=df_comptage[df_comptage['Nom du compteur']==compteur].sort_values('Date et heure de comptage', ascending=False).reset_index()
@@ -270,6 +282,9 @@ def get_evolution(compteur):
              'Evolution de la moyenne mensuelle': e_m,
             '''Evolution par rapport à l'année dernière''':e_a})
             
+
+            
+# Fonction qui prend un nom de compteur et renvoie un DF de passages quotidiens par mois 
 def df_moyenne_mensuelle(compteur):
     df=df_comptage[df_comptage['Nom du compteur']==compteur][['Date et heure de comptage', 'Comptage quotidien']]
     df=df.set_index('Date et heure de comptage')                                        
@@ -286,7 +301,8 @@ def df_moyenne_mensuelle(compteur):
     return(df)
 
     
-
+# fonction qui prend une liste de noms de compteurs
+# et renvoie un graphique ligne de moyenne mensuelle + les paramèetres de la régression linéaire associée
 
 def plot_moyennes_mensuelles(chosen):
     df=df_moyenne_mensuelle(chosen[0])
@@ -333,6 +349,29 @@ def plot_moyennes_mensuelles(chosen):
     fig_res.update_layout(title="Evolution de la moyenne quotidienne, par mois <br><sup>La ligne en pointillé représente une modélisation linéaire des passages observés. <br> Sa pente représente le nombre supplémentaire de cyclistes observés, en moyenne, par rapport au jour précédent.</sup>")
 
     return fig_res, dict_param
+
+def get_evolution_annuelle(compteur):
+    l=[compteur]
+    fig, params= plot_moyennes_mensuelles(l)
+    dict_res={'Nom du compteur':compteur, 'Tendance évolution journalière, sur toute la vie du compteur':round(params[compteur][1],3)}
+    dff=plot_average_by(compteur, 'Année').reset_index()
+    yrs=dff['Année'].tolist()
+    for k in range(len(yrs)-2):
+   
+        yi=yrs[k]
+        yf=yrs[k+1]
+        vi= dff[dff['Année']==yi]['Comptage quotidien'].iloc[0]
+        vf=dff[dff['Année']==yf]['Comptage quotidien'].iloc[0]
+
+        if vi>0:
+            key='Evolution '+str(int(yi))+' - '+str(int(yf))
+            value=round(100*(vf-vi)/vf,2)
+            value=str(value)+'%'
+            dict_res[key]=value
+        
+    
+    return dict_res
+    
 
  # initialize app
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -383,7 +422,9 @@ app.layout = html.Div(children=[
                 dcc.Graph(id='top10moins')
             ])
         ])
-    )),    
+    )),
+    html.H3(''' Croissance annuelle''', style={'textAlign': 'center'}) ,
+    html.Div(id='evol_annuelle'),
     html.H3(''' Comparaison par jour de la semaine''', style={'textAlign': 'center'}),    
     dcc.Graph(id='bar2'),
     html.Div(
@@ -401,6 +442,7 @@ app.layout = html.Div(children=[
     Output('top10moins', 'figure'),
     Output('bar2', 'figure'),
     Output('texte_infos_evolution','children'),
+    Output('evol_annuelle', 'children'),
     Input('compteurs_choisis', 'value'),
     Input('periodicite', 'value')
 )
@@ -408,13 +450,17 @@ app.layout = html.Div(children=[
 def update_hist(chosen,periodicite):
     dict_period={'Evolution des comptages quotidiens sur toute la période':'Date et heure de comptage','Evolution de la moyenne quotidienne par jour de la semaine':'Num Jour',  'Evolution de la moyenne quotidienne par mois de l''année':'Num Mois', 'Evolution de la moyenne quotidienne par année': 'Année'}
     compteur_0=chosen[0]
+    
 # Creation des graphiques en barres top10 jours moins fréquentés
     fig_moins, fig_plus=get_fig_jours_plus_moins(chosen) 
     fig_moins.update_layout(showlegend=False)
 
+
     
-#Graphique principal     
-    if periodicite=='Evolution de la moyenne quotidienne, moyenne par mois':
+#Graphique principal    
+        
+ 
+    if periodicite=='Evolution de la moyenne quotidienne, moyenne par mois' :
         df_evolution = df_moyenne_mensuelle(chosen[0])
         for c in chosen[1:] :
             df_temp=df_moyenne_mensuelle(c)
@@ -431,16 +477,24 @@ def update_hist(chosen,periodicite):
             df_evolution=pd.concat([df_evolution, df_temp])
         df_evolution=df_evolution.reset_index()
        
+    if periodicite=='Evolution de la moyenne quotidienne par année':
+        fig=px.bar(df_evolution, y='Comptage quotidien', x=dict_period[periodicite], color='Nom',barmode='group')
+
+
+        fig.update_xaxes(title_text='Année')
+        fig.update_layout(hovermode="x unified")
+        
 
     
     if periodicite == 'Evolution des comptages quotidiens sur toute la période':
-        df_evolution=df_evolution.reset_index()
+        df_evolution=df_comptage.loc[df_comptage['Nom du compteur'].isin(chosen)]
         df_evolution['Date']=df_evolution['Date et heure de comptage'].apply(lambda k: dict_jours[(k.date().weekday())]+' '+str(k.date().day)+' '+dict_mois[(k.date().month)]+' '+str(k.date().year))
         df_evolution['Date et heure de comptage']=pd.to_datetime(df_evolution['Date et heure de comptage']).dt.date
-        fig=px.bar(df_evolution, x='Date et heure de comptage', y='Comptage quotidien', color='Nom', barmode='group',hover_name='Date', hover_data={'Nom': True,'Comptage quotidien':True,'Date et heure de comptage':False,'Date':False})
-        fig.update_yaxes(title_text='Comptage quotidien')
-        fig.update_layout(hovermode="x unified")
-
+        df_evolution['jour ferié']=df_evolution['nom_jour_ferie'].notnull()
+        fig1=px.bar(df_evolution, x='Date et heure de comptage', y='Comptage quotidien', color='Nom du compteur', barmode='group',hover_name='Date', hover_data={'Nom du compteur': True,'Comptage quotidien':True,'Date et heure de comptage':False,'Date':False, 'jour ferié':False,'nom_jour_ferie':False})
+        fig1.update_yaxes(title_text='Comptage quotidien')
+        fig2=px.scatter( df_evolution[(df_evolution['Nom du compteur']==chosen[0]) & (df_evolution['jour ferié']==True)], x='Date et heure de comptage', y='Comptage quotidien', symbol='jour ferié', symbol_sequence=['cross'], color='jour ferié', color_discrete_sequence=['red'], hover_name='nom_jour_ferie')
+        fig=go.Figure(data=fig1.data+fig2.data)
 
     if periodicite =='Evolution de la moyenne quotidienne par jour de la semaine':
         fig=px.bar(df_evolution, y='Comptage quotidien', x=dict_period[periodicite], color='Nom',barmode='group')
@@ -465,18 +519,18 @@ def update_hist(chosen,periodicite):
         fig, param=plot_moyennes_mensuelles(chosen)
         
  #creation de la visualisation par jour de la semaine      
-    dff=df_infos_compteurs[df_infos_compteurs['Nom du compteur']==compteur_0][['Moyenne Lun-Ven','Moyenne Samedi','Moyenne Dimanche','Moyenne quotidienne']].transpose().reset_index()
+    dff=df_infos_compteurs[df_infos_compteurs['Nom du compteur']==compteur_0][['Moyenne Lun-Ven','Moyenne Samedi','Moyenne Dimanche','Moyenne quotidienne', 'Moyenne jours feriés']].transpose().reset_index()
     dff.columns = ['Donnée', 'Passages']
     dff['Nom']=compteur_0
     for c in chosen[1:] :
-        df_temp=df_infos_compteurs[df_infos_compteurs['Nom du compteur']==c][['Moyenne Lun-Ven','Moyenne Samedi','Moyenne Dimanche','Moyenne quotidienne']].transpose().reset_index()
+        df_temp=df_infos_compteurs[df_infos_compteurs['Nom du compteur']==c][['Moyenne Lun-Ven','Moyenne Samedi','Moyenne Dimanche','Moyenne quotidienne', 'Moyenne jours feriés']].transpose().reset_index()
         df_temp.columns=['Donnée', 'Passages']
         df_temp['Nom']=c
         dff=pd.concat([dff, df_temp])
     
     fig_compteur=px.bar(dff, x='Donnée', y='Passages', color='Nom', barmode='group')    
     
-    
+    # Tableau evolution annuelle
     
     return(fig, 
            dash_table.DataTable(data=df_info_tr[chosen].reset_index().to_dict('records'),css=[{'selector': 'table', 'rule': 'table-layout: fixed'}],
@@ -490,8 +544,11 @@ def update_hist(chosen,periodicite):
         dash_table.DataTable(data=([get_evolution(c) for c in chosen]),style_data={
         'whiteSpace': 'normal',
         'height': 'auto',
-        })
-        )
+        }),
+        dash_table.DataTable(data=([get_evolution_annuelle(c) for c in chosen]),style_data={
+        'whiteSpace': 'normal',
+        'height': 'auto'}
+        ))
 
 
 if __name__ == "__main__":
