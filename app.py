@@ -291,7 +291,7 @@ def get_evolution(compteur):
     derniere_date=most_recent_line['date']
     dernier_comptage=int(most_recent_line['Comptage quotidien'])    
     same_day_last_week = derniere_date-pd.Timedelta(weeks=1)
-    date_last_year=derniere_date-pd.DateOffset(years=1)
+    date_last_year=(derniere_date-pd.DateOffset(years=1)).date()
     
     s_evo_sem, s_evo_mois, s_evo_an='-','-','-'
     
@@ -354,12 +354,7 @@ def df_moyenne_mensuelle(compteur, start=df_comptage['date'].min(), end=df_compt
     
     return(df)
 
-    
-
-
-
-
-    
+        
 # fonction qui prend une liste de noms de compteurs
 # et renvoie un graphique ligne de moyenne mensuelle + les paramèetres de la régression linéaire associée
 
@@ -370,9 +365,6 @@ def plot_moyennes_mensuelles(chosen,start=df_comptage['date'].min(), end=df_comp
     date_install_min= df_infos_compteurs[df_infos_compteurs['Nom du compteur'].isin(chosen)]['''Date d'installation du site de comptage'''].min()
     
     for c in chosen[1:] :
-        date_install=df_infos_compteurs[df_infos_compteurs['Nom du compteur']== c]['''Date d'installation du site de comptage'''].iloc[0]
-        
-        #print(type(date_install))
         df_temp= df_moyenne_mensuelle(c, start, end)
         df_temp['Nom']=c
         df_temp['date_delta'] = df_temp['date'].apply(lambda x: (pd.to_datetime(x) - pd.to_datetime(date_install_min) )/ np.timedelta64(1,'D'))
@@ -449,6 +441,7 @@ app.layout = html.Div(children=[
     html.Br(),
     
     dcc.Graph(figure=plot_all_locations()),
+    html.Div(id='photos', style= {'textAlign': 'center'}),
     html.Div([
         html.H3(''' Sélectionnez les compteurs dont vous souhaitez visualiser l'évolution.''', style={'textAlign': 'center'}),
         dcc.Dropdown(
@@ -485,6 +478,16 @@ app.layout = html.Div(children=[
     
     dcc.Graph(id='bar'),
     html.Div(id='texte_infos_evolution'),
+    dcc.Clipboard(
+        target_id='texte_infos_evolution',
+        title="copy",
+        style={
+            "display": "inline-block",
+            "fontSize": 20,
+            "verticalAlign": "top",
+        },
+    ),
+    
     html.Div(html.Table(
         html.Tr([
             html.Td([
@@ -497,11 +500,30 @@ app.layout = html.Div(children=[
     )),
     html.H3(''' Croissance annuelle''', style={'textAlign': 'center'}) ,
     html.Div(id='evol_annuelle'),
+    dcc.Clipboard(
+        target_id='evol_annuelle',
+        title="copy",
+        style={
+            "display": "inline-block",
+            "fontSize": 20,
+            "verticalAlign": "top",
+        },
+    ),
+    
+    html.Div([
     html.H3(''' Comparaison par jour de la semaine''', style={'textAlign': 'center'}),    
-    dcc.Graph(id='bar2'),
+    dcc.Graph(id='bar2')]),
     html.Div(
            id='table'
-       )
+       ),
+    dcc.Clipboard(
+        target_id='table',
+        title="copy",
+        style={
+            "display": "inline-block",
+            "fontSize": 20,
+            "verticalAlign": "top",
+        }),
     
     
 ])
@@ -515,6 +537,7 @@ app.layout = html.Div(children=[
     Output('bar2', 'figure'),
     Output('texte_infos_evolution','children'),
     Output('evol_annuelle', 'children'),
+    Output('photos', 'children'),
     Input('compteurs_choisis', 'value'),
     Input('periodicite', 'value'),
     Input('date-picker', 'start_date'),
@@ -526,17 +549,24 @@ def update_hist(chosen,periodicite, start, end):
     compteur_0=chosen[0]
     start=datetime.strptime(str(start), '%Y-%m-%d').date()
     end=datetime.strptime(str(end), '%Y-%m-%d').date()
+    
+# Photos des compteurs:
+    df_filtered = df_compteurs[df_compteurs['Nom du compteur'].isin(chosen)]
+
+    # create a list of html.Img components for each photo in the filtered DataFrame
+    photo_components = []
+    for index, row in df_filtered.iterrows():
+        photo_components.append(
+            html.Div([html.Img(src=row['photourl'], alt=row['Nom du compteur'], style={"width": '300px', 'height':'auto'}),html.P(row['Nom du compteur'])], style={"display": "inline-block", "margin": "10px"}))
+ 
 
 # Creation des graphiques en barres top10 jours moins fréquentés
     fig_moins, fig_plus=get_fig_jours_plus_moins(chosen, start, end) 
     fig_moins.update_traces(width = 1/len(chosen))
     fig_plus.update_traces(width = 1/len(chosen))
 
-
     
-#Graphique principal    
-        
- 
+#Graphique principal     
     if periodicite=='Evolution de la moyenne quotidienne, moyenne par mois' :
         df_evolution = df_moyenne_mensuelle(chosen[0], start, end)
         for c in chosen[1:] :
@@ -556,18 +586,16 @@ def update_hist(chosen,periodicite, start, end):
        
     if periodicite=='Evolution de la moyenne quotidienne par année':
         fig=px.bar(df_evolution, y='Comptage quotidien', x=dict_period[periodicite], color='Nom',barmode='group')
-
-
         fig.update_xaxes(title_text='Année')
         fig.update_layout(hovermode="x unified")
-        fig.update_traces(width = 1/len(chosen))
+        fig.update_traces(width = 0.9/len(chosen))
         
 
     
     if periodicite == 'Evolution des comptages quotidiens sur toute la période':
         df_evolution=df_comptage.loc[(df_comptage['Nom du compteur'].isin(chosen)) & (df_comptage['date']>=start) & (df_comptage['date'] <= end)]
         df_evolution['Date']=df_evolution['date'].apply(lambda k: dict_jours[(k.weekday())]+' '+str(k.day)+' '+dict_mois[(k.month)]+' '+str(k.year))
-        df_evolution['date']=pd.to_datetime(df_evolution['date']).dt.date
+        #df_evolution['date']=pd.to_datetime(df_evolution['date']).dt.date()
         df_evolution['jour ferié']=df_evolution['nom_jour_ferie'].notnull()
         
         df_evolution['Pattern'] = np.nan
@@ -581,6 +609,7 @@ def update_hist(chosen,periodicite, start, end):
         fig=px.bar(df_evolution, x='date', y='Comptage quotidien', color='Nom du compteur', barmode='group',hover_name='Date', hover_data={'Nom du compteur': True,'Comptage quotidien':True,'date':False,'Date':False, 'jour ferié':False,'nom_jour_ferie':False},pattern_shape='Pattern', pattern_shape_map=pattern_shapes)
         fig.update_yaxes(title_text='Comptage quotidien')
         fig.update_traces(width = (1000 * 3600 * 24)/len(chosen))
+        fig.update_layout(bargap=0, bargroupgap=0)
         #fig2=px.scatter( df_evolution[(df_evolution['Nom du compteur']==chosen[0]) & (df_evolution['jour ferié']==True)], x='date', y='Comptage quotidien', symbol='jour ferié', symbol_sequence=['cross'], color='jour ferié', color_discrete_sequence=['red'], hover_name='nom_jour_ferie')
         #fig=go.Figure(data=fig1.data+fig2.data)
 
@@ -640,7 +669,8 @@ def update_hist(chosen,periodicite, start, end):
         }),
         dash_table.DataTable(data=[get_evolution_annuelle(c) for c in chosen],style_data={
         'whiteSpace': 'normal',
-        'height': 'auto'}))
+        'height': 'auto'}),
+        photo_components)
 
 
 if __name__ == "__main__":
